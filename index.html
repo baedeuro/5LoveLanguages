@@ -324,7 +324,7 @@
 
     <section class="actions" aria-label="결과 버튼">
       <button type="button" class="primary" id="showResultBtn">결과 보기</button>
-      <button type="button" class="secondary" id="printBtn">인쇄 / PDF 저장</button>
+      <button type="button" class="secondary" id="saveJpgBtn">결과 저장(사진)</button>
       <button type="button" class="danger" id="resetBtn">답변 초기화</button>
     </section>
 
@@ -337,6 +337,7 @@
     </section>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script>
     const TYPES = {
       words: {
@@ -399,6 +400,7 @@
     const resultBox = document.getElementById('resultBox');
     const progressText = document.getElementById('progressText');
     const progressFill = document.getElementById('progressFill');
+    let resultGenerated = false;
 
     function renderQuestions() {
       form.innerHTML = QUESTIONS.map((q, index) => `
@@ -427,6 +429,8 @@
     }
 
     function updateProgress() {
+      resultGenerated = false;
+      resultBox.style.display = 'none';
       const answered = getAnsweredCount();
       progressText.textContent = `${answered} / ${QUESTIONS.length}`;
       progressFill.style.width = `${answered / QUESTIONS.length * 100}%`;
@@ -539,6 +543,7 @@
         </article>
       `).join('');
 
+      resultGenerated = true;
       resultBox.style.display = 'block';
       resultBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -547,6 +552,7 @@
       if (!confirm('답변을 모두 초기화할까요?')) return;
       form.reset();
       localStorage.removeItem('loveLanguageAnswers');
+      resultGenerated = false;
       resultBox.style.display = 'none';
       alertBox.style.display = 'none';
       updateProgress();
@@ -556,8 +562,77 @@
     renderQuestions();
     loadAnswers();
     form.addEventListener('change', updateProgress);
+    async function saveResultAsJpg() {
+      const missing = findMissingQuestion();
+      if (missing) {
+        alertBox.style.display = 'block';
+        alertBox.textContent = `${missing}번 문항을 선택한 뒤 결과 보기를 눌러 주세요.`;
+        const target = document.getElementById(`q${missing}`);
+        target.classList.add('missing');
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+
+      if (!resultGenerated || resultBox.style.display !== 'block') {
+        alertBox.style.display = 'block';
+        alertBox.textContent = '먼저 결과 보기를 누른 뒤 결과를 저장해 주세요.';
+        document.getElementById('showResultBtn').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+
+      const button = document.getElementById('saveJpgBtn');
+      const originalText = button.textContent;
+      button.textContent = '저장 중...';
+      button.disabled = true;
+
+      try {
+        if (typeof html2canvas === 'undefined') {
+          alert('이미지 저장 기능을 불러오지 못했습니다. 인터넷 연결 후 다시 시도해 주세요.');
+          return;
+        }
+
+        const canvas = await html2canvas(resultBox, {
+          backgroundColor: '#ffffff',
+          scale: Math.min(window.devicePixelRatio || 2, 3),
+          useCORS: true
+        });
+
+        canvas.toBlob(async (blob) => {
+          if (!blob) {
+            alert('결과 이미지를 저장하지 못했습니다. 다시 시도해 주세요.');
+            return;
+          }
+
+          const fileName = '사랑의-언어-테스트-결과.jpg';
+          const file = new File([blob], fileName, { type: 'image/jpeg' });
+
+          if (navigator.canShare && navigator.canShare({ files: [file] }) && navigator.share) {
+            try {
+              await navigator.share({ files: [file], title: '사랑의 언어 테스트 결과' });
+              return;
+            } catch (shareError) {
+              if (shareError && shareError.name === 'AbortError') return;
+            }
+          }
+
+          const link = document.createElement('a');
+          link.download = fileName;
+          link.href = URL.createObjectURL(blob);
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        }, 'image/jpeg', 0.95);
+      } catch (error) {
+        alert('결과 이미지를 저장하지 못했습니다. 다시 시도해 주세요.');
+      } finally {
+        button.textContent = originalText;
+        button.disabled = false;
+      }
+    }
+
     document.getElementById('showResultBtn').addEventListener('click', showResult);
-    document.getElementById('printBtn').addEventListener('click', () => window.print());
+    document.getElementById('saveJpgBtn').addEventListener('click', saveResultAsJpg);
     document.getElementById('resetBtn').addEventListener('click', resetTest);
   </script>
 </body>
